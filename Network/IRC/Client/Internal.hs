@@ -32,11 +32,12 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (ask, runReaderT)
 import Data.ByteString (ByteString)
 import Data.Conduit (ConduitM, (.|), await, awaitForever, yield)
+import Data.Fixed (Fixed(MkFixed), Micro)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import qualified Data.Set as S
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
-import Data.Time.Clock (NominalDiffTime, UTCTime, addUTCTime, diffUTCTime, getCurrentTime)
+import Data.Time.Clock (NominalDiffTime, UTCTime, addUTCTime, diffUTCTime, getCurrentTime, nominalDiffTimeToSeconds)
 import Data.Time.Format (formatTime)
 import Data.Void (Void)
 import Network.IRC.Conduit (Event(..), Message(..), Source(..), floodProtector, rawMessage, toByteString)
@@ -126,13 +127,14 @@ runner = do
   -- Fork a thread to disconnect if the timeout elapses.
   mainTId <- liftIO myThreadId
   let time  = _timeout cconf
-  let delay = round time
   let timeoutThread = do
         now <- getCurrentTime
         prior <- readIORef lastReceived
-        if diffUTCTime now prior >= time
+        let timeLeft = time - diffUTCTime now prior
+        let (MkFixed delay :: Micro) = fromRational . toRational $ timeLeft
+        if timeLeft <= 0
           then throwTo mainTId Timeout
-          else threadDelay delay >> timeoutThread
+          else threadDelay (fromInteger delay) >> timeoutThread
   timeoutTId <- liftIO (forkIO timeoutThread)
 
   -- Start the client.
